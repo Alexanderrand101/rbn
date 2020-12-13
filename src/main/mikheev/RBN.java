@@ -209,7 +209,7 @@ public class RBN {
                 for (int r = 0; r < inputVectorSize; r++) {
                     zQsum += correlationMatrices[i][r][j] * zir[i][r];
                 }
-                cDeriv[i][j] = 1 * expOfu(ui[i]) * diffWSum * zQsum;
+                cDeriv[i][j] = -1 * expOfu(ui[i]) * diffWSum * zQsum;
             }
         }
 

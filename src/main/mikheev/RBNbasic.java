@@ -8,7 +8,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-public class RBNbasic {
+public class RBNbasic implements RadialBasedNetwork{
     public double[][] centers;
     public double[][] sigmas;
     public double[] outWeights;
@@ -36,7 +36,8 @@ public class RBNbasic {
         return sum;
     }
 
-    public void initCenters(double[][] initVectors, double[][] allInputVectors){
+    @Override
+    public void initCentersKmeans(double[][] initVectors, double[][] allInputVectors, int maxEpoch, double n, double stopShift) {
         for (int i = 0; i < hiddenLayerSize; i++) {
             for (int j = 0; j < inputVectorSize; j++) {
                 centers[i][j] = initVectors[i][j];
@@ -44,10 +45,15 @@ public class RBNbasic {
         }
         //fill Q with 0;
         double totalDelta = 10;
-        double n = 0.01;
         int counter = 0;
-        while (totalDelta > 0.01){
+        while (totalDelta > stopShift || counter < maxEpoch){
             double newTotalDelta = 0;
+            double[][] deltaOfWinId = new double[hiddenLayerSize][inputVectorSize];
+            for (int i = 0; i < hiddenLayerSize; i++) {
+                for (int j = 0; j < inputVectorSize; j++) {
+                    deltaOfWinId[i][j] = 0;
+                }
+            }
             for (int i = 0; i < allInputVectors.length; i++){
                 int winnerId = -1;
                 double winnerDiff = Integer.MAX_VALUE;
@@ -62,15 +68,19 @@ public class RBNbasic {
                         winnerId = j;
                     }
                 }
-                //adjust winner
+                int a = 0;
                 for (int j = 0; j < inputVectorSize; j++) {
-                    centers[winnerId][j] -= (n * (allInputVectors[i][j] - centers[winnerId][j]));
-                    newTotalDelta += Math.abs(n * (allInputVectors[i][j] - centers[winnerId][j]));
+                    centers[winnerId][j] += (n * (allInputVectors[i][j] - centers[winnerId][j]));
+                    deltaOfWinId[winnerId][j] += (n * (allInputVectors[i][j] - centers[winnerId][j]));
+                }
+            }
+            for (int i = 0; i < hiddenLayerSize; i++) {
+                for (int j = 0; j < inputVectorSize; j++) {
+                    newTotalDelta += Math.abs(deltaOfWinId[i][j]);
                 }
             }
             totalDelta = newTotalDelta;
             counter++;
-            n /= 2;
         }
 
         double[][] distanceVector = new double[hiddenLayerSize][hiddenLayerSize];
@@ -95,6 +105,128 @@ public class RBNbasic {
         }
     }
 
+    @Override
+    public void initCentersNoKmeans(double[][] initVectors) {
+        for (int i = 0; i < hiddenLayerSize; i++) {
+            for (int j = 0; j < inputVectorSize; j++) {
+                centers[i][j] = initVectors[i][j];
+            }
+        }
+
+        double[][] distanceVector = new double[hiddenLayerSize][hiddenLayerSize];
+        for (int i = 0; i < hiddenLayerSize; i++) {
+            for (int j = 0; j < hiddenLayerSize; j++) {
+                distanceVector[i][j] = 0;
+                for (int k = 0; k < inputVectorSize; k++) {
+                    distanceVector[i][j] += Math.pow(centers[i][k] - centers[j][k], 2);
+                }
+            }
+            Arrays.parallelSort(distanceVector[i]);
+            double radius = 0;
+            //0 is at 0
+            for(int j = 1; j < Math.min(hiddenLayerSize, 4); j++){
+                radius += distanceVector[i][j];
+            }
+            radius /= (Math.min(hiddenLayerSize, 4) - 1);
+            radius = Math.sqrt(radius);
+            for (int k = 0; k < inputVectorSize; k++) {
+                sigmas[i][k] = radius;
+            }
+        }
+    }
+
+    @Override
+    public List<Double> trainWonly(double[][] inputVectors, double[] expResults, int maxEpoch, double n, double minError) {
+        double oldError = Integer.MAX_VALUE;
+        List<Double> errorPerEpoch = new ArrayList<>();
+        List<Double> xAxis = new ArrayList<>();
+        for (int i = 0; i < maxEpoch; i++) {
+            double newError = 0;
+            for (int j = 0; j < inputVectors.length; j++) {
+                double result = f(inputVectors[j]);
+                double diff = result - expResults[j];
+                adjustOnlyW(diff, inputVectors[j], n);
+                newError += Math.pow(diff, 2);
+            }
+            newError /= (inputVectors.length - 1);
+            newError = Math.sqrt(newError);
+            oldError = newError;
+            errorPerEpoch.add(newError);
+        }
+
+        return errorPerEpoch;
+    }
+
+    public void initCenters(double[][] initVectors, double[][] allInputVectors){
+        for (int i = 0; i < hiddenLayerSize; i++) {
+            for (int j = 0; j < inputVectorSize; j++) {
+                centers[i][j] = initVectors[i][j];
+            }
+        }
+        //fill Q with 0;
+        double totalDelta = 10;
+        double n = 0.001;
+        int counter = 0;
+        while (totalDelta > 0.001 || counter < 1000){
+            double newTotalDelta = 0;
+            double[][] deltaOfWinId = new double[hiddenLayerSize][inputVectorSize];
+            for (int i = 0; i < hiddenLayerSize; i++) {
+                for (int j = 0; j < inputVectorSize; j++) {
+                    deltaOfWinId[i][j] = 0;
+                }
+            }
+            for (int i = 0; i < allInputVectors.length; i++){
+                int winnerId = -1;
+                double winnerDiff = Integer.MAX_VALUE;
+                for (int j = 0; j < hiddenLayerSize; j++) {
+                    double distance = 0;
+                    for (int k = 0; k < inputVectorSize; k++) {
+                        distance += Math.pow(allInputVectors[i][k] - centers[j][k], 2);
+                    }
+                    distance = Math.sqrt(distance);
+                    if (distance < winnerDiff){
+                        winnerDiff = distance;
+                        winnerId = j;
+                    }
+                }
+                int a = 0;
+                for (int j = 0; j < inputVectorSize; j++) {
+                    centers[winnerId][j] += (n * (allInputVectors[i][j] - centers[winnerId][j]));
+                    deltaOfWinId[winnerId][j] += (n * (allInputVectors[i][j] - centers[winnerId][j]));
+                }
+            }
+            for (int i = 0; i < hiddenLayerSize; i++) {
+                for (int j = 0; j < inputVectorSize; j++) {
+                    newTotalDelta += Math.abs(deltaOfWinId[i][j]);
+                }
+            }
+            totalDelta = newTotalDelta;
+            counter++;
+        }
+
+        double[][] distanceVector = new double[hiddenLayerSize][hiddenLayerSize];
+        for (int i = 0; i < hiddenLayerSize; i++) {
+            for (int j = 0; j < hiddenLayerSize; j++) {
+                distanceVector[i][j] = 0;
+                for (int k = 0; k < inputVectorSize; k++) {
+                    distanceVector[i][j] += Math.pow(centers[i][k] - centers[j][k], 2);
+                }
+            }
+            Arrays.parallelSort(distanceVector[i]);
+            double radius = 0;
+            //0 is at 0
+            for(int j = 1; j < Math.min(hiddenLayerSize, 4); j++){
+                radius += distanceVector[i][j];
+            }
+            radius /= (Math.min(hiddenLayerSize, 4) - 1);
+            radius = Math.sqrt(radius);
+            for (int k = 0; k < inputVectorSize; k++) {
+                sigmas[i][k] = radius;
+            }
+        }
+    }
+
+    @Override
     public void initW(){
         for (int i = 0; i < hiddenLayerSize + 1; i++) {
             outWeights[i] = Math.random();
@@ -156,6 +288,7 @@ public class RBNbasic {
 
 
     //individual derivatives for testing
+    @Override
     public double wDeriv(int i_ind, double[] inputVector){
         return expOfu(u(inputVector, i_ind));
     }
